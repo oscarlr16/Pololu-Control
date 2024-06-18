@@ -64,7 +64,7 @@ This tutorial will guide you through setting up and testing the motor control co
 
 **Note:** It is crucial to set the line ending to `Newline` for the commands to be processed correctly.
 
-![Serial Monitor Settings](./README.png)
+![Serial Monitor Settings](./terminal.png)
 
 ## Commands
 
