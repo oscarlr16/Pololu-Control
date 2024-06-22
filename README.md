@@ -86,6 +86,13 @@ You can control the motors using the following commands via the Serial Monitor:
    - Command: `B<amplitude>sin`
    - Example: `B10sin` (Moves motor B in a sine wave with 10 degrees amplitude)
 
+5. **Stop Motor A or B**:
+   - Command: `Astop` (Stops motor A)
+   - Command: `Bstop` (Stops motor B)
+
+6. **Stop Both Motors**:
+   - Command: `stop` (Stops both motors)
+
 ## Expected Output
 
 After entering the commands, you should see the status of both motors printed in the Serial Monitor:
