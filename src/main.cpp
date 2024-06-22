@@ -93,16 +93,34 @@ void handleSerialInput() {
     if (Serial.available()) { // Check if data is available in the serial buffer
         String command = Serial.readStringUntil('\n'); // Read the incoming command until newline
         char motorId = command.charAt(0); // Get the motor ID (A or B)
-        double value = command.substring(1, command.length() - 3).toDouble(); // Get the amplitude or setpoint value
-        String func = command.substring(command.length() - 3); // Get the function (e.g., "sin")
+        double value = 0;
+        String func = "";
 
-        if (func == "sin") { // If the function is sine wave
-            if (motorId == 'A') { // If the command is for motor A
+        // Check for valid command length
+        if (command.length() > 1) {
+            // Parse sine wave command
+            if (command.indexOf("sin") != -1) {
+                func = "sin";
+                value = command.substring(1, command.indexOf("sin")).toDouble();
+            } 
+            // Parse direct move command
+            else if (isDigit(command.charAt(1)) || (command.charAt(1) == '-' && isDigit(command.charAt(2)))) {
+                value = command.substring(1).toDouble();
+            } 
+            // Parse stop command
+            else {
+                func = command.substring(1);
+            }
+        }
+
+        // Handle sine wave movement commands
+        if (func == "sin") {
+            if (motorId == 'A') {
                 sineWaveActiveA = true; // Activate sine wave movement for motor A
                 sineAmplitudeA = value; // Set amplitude for motor A
                 startTimeA = millis(); // Set start time for motor A
                 Serial.println("Motor A moving in sine wave with amplitude " + String(value) + " mm");
-            } else if (motorId == 'B') { // If the command is for motor B
+            } else if (motorId == 'B') {
                 sineWaveActiveB = true; // Activate sine wave movement for motor B
                 sineAmplitudeB = value; // Set amplitude for motor B
                 startTimeB = millis(); // Set start time for motor B
@@ -110,19 +128,38 @@ void handleSerialInput() {
             } else {
                 Serial.println("Invalid motor ID. Use 'A' for Motor A and 'B' for Motor B.");
             }
-        } else { // If the command is a direct move command
-            value = command.substring(1).toDouble(); // Get the setpoint value after the motor ID
-            if (motorId == 'A') { // If the command is for motor A
+        }
+        // Handle stop commands
+        else if (command == "Astop") {
+            sineWaveActiveA = false; // Deactivate sine wave movement for motor A
+            motorControlA.stop(); // Stop motor A
+            Serial.println("Motor A stopped");
+        } else if (command == "Bstop") {
+            sineWaveActiveB = false; // Deactivate sine wave movement for motor B
+            motorControlB.stop(); // Stop motor B
+            Serial.println("Motor B stopped");
+        } else if (command == "stop") {
+            sineWaveActiveA = false; // Deactivate sine wave movement for motor A
+            sineWaveActiveB = false; // Deactivate sine wave movement for motor B
+            motorControlA.stop(); // Stop motor A
+            motorControlB.stop(); // Stop motor B
+            Serial.println("Both motors stopped");
+        }
+        // Handle direct move commands
+        else if (isDigit(command.charAt(1)) || (command.charAt(1) == '-' && isDigit(command.charAt(2)))) {
+            if (motorId == 'A') {
                 sineWaveActiveA = false; // Deactivate sine wave movement for motor A
                 motorControlA.move_to(convertMMToSteps(value)); // Move motor A to the setpoint
                 Serial.println("Motor A moving to " + String(value) + " mm");
-            } else if (motorId == 'B') { // If the command is for motor B
+            } else if (motorId == 'B') {
                 sineWaveActiveB = false; // Deactivate sine wave movement for motor B
                 motorControlB.move_to(convertDegreesToSteps(value)); // Move motor B to the setpoint
                 Serial.println("Motor B moving to " + String(value) + " degrees");
             } else {
                 Serial.println("Invalid motor ID. Use 'A' for Motor A and 'B' for Motor B.");
             }
+        } else {
+            Serial.println("Invalid command format.");
         }
     }
 }

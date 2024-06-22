@@ -60,6 +60,9 @@ double DCMotorControl::get_pid_sample_time() {
 }
 
 void DCMotorControl::move_to(double position) {
+    if (_pid_controller->GetMode() == MANUAL) {
+        _pid_controller->SetMode(AUTOMATIC); // Reactivar PID si está en modo manual
+    }
     _pid_setpoint = position;
 }
 
@@ -71,17 +74,22 @@ void thread_motor_function(void* pvParameters) {
     DCMotorControl* motor_control = (DCMotorControl*) pvParameters;
     for(;;) {
         motor_control->_position = motor_control->_encoder.getCount();
-        motor_control->_pid_controller->Compute();
+        if (motor_control->_pid_controller->GetMode() == AUTOMATIC) {
+            motor_control->_pid_controller->Compute();
 
-        double pid_pwm_output = motor_control->_pid_output;
-        if (pid_pwm_output > 0) {
-            pid_pwm_output = map(pid_pwm_output, 0, 100, POSITIVE_MIN_POWER, POSITIVE_MAX_POWER);
+            double pid_pwm_output = motor_control->_pid_output;
+            if (pid_pwm_output > 0) {
+                pid_pwm_output = map(pid_pwm_output, 0, 100, POSITIVE_MIN_POWER, POSITIVE_MAX_POWER);
+            } else {
+                pid_pwm_output = map(pid_pwm_output, 0, -100, NEGATIVE_MIN_POWER, NEGATIVE_MAX_POWER);
+            }
+
+            motor_control->_motor->run(pid_pwm_output);
+            Logger::log("PID output: " + String(pid_pwm_output));
         } else {
-            pid_pwm_output = map(pid_pwm_output, 0, -100, NEGATIVE_MIN_POWER, NEGATIVE_MAX_POWER);
+            // Ensure the motor is stopped if PID is not in automatic mode
+            motor_control->_motor->stop();
         }
-
-        motor_control->_motor->run(pid_pwm_output);
-        Logger::log("PID output: " + String(pid_pwm_output));
 
         vTaskDelay(motor_control->get_pid_sample_time() / portTICK_PERIOD_MS);
     }
@@ -93,4 +101,7 @@ void DCMotorControl::set_speed(double speed) {
 
 void DCMotorControl::stop() {
     Logger::log(String("Stopping motor"));
+    _pid_controller->SetMode(MANUAL); // Disable PID control
+    _pid_output = 0; // Set PID output to zero
+    _motor->stop(); // Stop the motor by setting PWM to zero
 }
