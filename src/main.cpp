@@ -7,15 +7,34 @@
 
 // User Adjustable Variables
 // You can adjust these variables according to your needs. Changing these values will affect how the motor operates.
+// Position Limits mm
+#define MOTOR_A_MAX 90.0
+#define MOTOR_A_MIN 0.0
+#define MOTOR_A_MID (MOTOR_A_MAX + MOTOR_A_MIN )/2.0
+
+// Position Limits degrees
+#define MOTOR_B_MAX 37.0/2
+#define MOTOR_B_MIN -37.0/2
+#define MOTOR_B_MID 0.0
 
 // Counts per revolution (CPR) of the motor encoder
 #define CPR 12 
 
-// Gear reduction ratio of the motor
-#define GEAR_REDUCTION_RATIO 5 
-
+/* -- MOTOR_A is the radius Drive --*/
+// motor A ratios 5, 10 , 15
+#define MOTOR_A_GEAR_RATIO 5
+#define MOTOR_A_SHAFT_RATIO 20/14
+#define MOTOR_A_FINAL_RATIO MOTOR_A_GEAR_RATIO*MOTOR_A_SHAFT_RATIO
 // Linear advance per revolution in mm
 #define LINEAR_ADVANCE_PER_REVOLUTION_MM 10.0 
+
+/* -- MOTOR_B is the Angle Drive --*/
+// motor B ratios 250, 298, 350
+#define MOTOR_B_GEAR_RATIO 350
+// is this right? or is it 45/12?
+#define MOTOR_B_BELT_RATIO 50/12
+#define MOTOR_B_FINAL_RATIO MOTOR_B_GEAR_RATIO*MOTOR_B_BELT_RATIO
+
 
 // PID tunings for Motor A
 #define MOTOR_A_P 0.7
@@ -23,9 +42,10 @@
 #define MOTOR_A_D 0.01
 
 // PID tunings for Motor B
-#define MOTOR_B_P 0.7
-#define MOTOR_B_I 0.09
-#define MOTOR_B_D 0.01
+// starting point 0.7,0.09,0.01
+#define MOTOR_B_P 0.01
+#define MOTOR_B_I 0.0
+#define MOTOR_B_D 0.0
 
 // --- End of User Adjustable Variables ---
 
@@ -62,19 +82,36 @@ void setup() {
 }
 
 void loop() {
-    handleSerialInput(); // Handle serial input from the user
-    if (sineWaveActiveA) { // If sine wave movement is active for motor A
-        double time = (millis() - startTimeA) / 1000.0; // Calculate elapsed time in seconds
-        double setpoint = sineAmplitudeA * sin(2 * PI * time); // Calculate sine wave setpoint
-        motorControlA.move_to(convertMMToSteps(setpoint)); // Move motor A to the calculated setpoint
+    u_int64_t now = millis();
+
+    u_int64_t reportInterval = 300;
+    static u_int64_t lastReport = 0;
+    if (now > lastReport + reportInterval){
+        lastReport = now;
+        printMotorStatus(); // Print the current status of the motors
     }
-    if (sineWaveActiveB) { // If sine wave movement is active for motor B
-        double time = (millis() - startTimeB) / 1000.0; // Calculate elapsed time in seconds
-        double setpoint = sineAmplitudeB * sin(2 * PI * time); // Calculate sine wave setpoint
-        motorControlB.move_to(convertDegreesToSteps(setpoint)); // Move motor B to the calculated setpoint
+
+    handleSerialInputOscar(); // Handle serial input from the user
+    //handleSerialInputKWC();
+
+    // add update rate code
+    u_int64_t sineInterval = 50;
+    static u_int64_t lastSine = 0;
+    if (now > lastSine + sineInterval){
+        lastSine = now;
+        if (sineWaveActiveA) { // If sine wave movement is active for motor A
+            double time = (millis() - startTimeA) / 1000.0; // Calculate elapsed time in seconds
+            double setpoint = MOTOR_A_MID + sineAmplitudeA * sin(2 * PI * time); // Calculate sine wave setpoint
+            motorControlA.move_to(convertMMToSteps(setpoint)); // Move motor A to the calculated setpoint
+        }
+        if (sineWaveActiveB) { // If sine wave movement is active for motor B
+        // Serial.println("=========================== sin B active =================");
+            double time = (millis() - startTimeB) / 1000.0; // Calculate elapsed time in seconds
+            double setpoint = sineAmplitudeB * sin(2 * PI * time); // Calculate sine wave setpoint
+            motorControlB.move_to(convertDegreesToSteps(setpoint)); // Move motor B to the calculated setpoint
+        }
     }
-    printMotorStatus(); // Print the current status of the motors
-    delay(100); // Delay for 100 milliseconds
+    //delay(100); // Delay for 100 milliseconds
 }
 
 void configurePins() {
@@ -89,7 +126,8 @@ void initializeMotors() {
     motorControlB.move_to(0); // Move motor B to initial position 0
 }
 
-void handleSerialInput() {
+
+void handleSerialInputOscar() {
     if (Serial.available()) { // Check if data is available in the serial buffer
         String command = Serial.readStringUntil('\n'); // Read the incoming command until newline
         char motorId = command.charAt(0); // Get the motor ID (A or B)
@@ -164,34 +202,101 @@ void handleSerialInput() {
     }
 }
 
+
+
+void handleSerialInputKWC() {
+    if (Serial.available()) { // Check if data is available in the serial buffer
+        String command = Serial.readStringUntil('\n'); // Read the incoming command until newline
+        char motorId = (char)32 | command.charAt(0); // Get the motor ID (A or B)
+        double value = command.substring(1, command.length() - 3).toDouble(); // Get the amplitude or setpoint value
+        String func = command.substring(command.length() - 3); // Get the function (e.g., "sin")
+        
+        if (motorId != 'a' && motorId != 'b') {
+            Serial.print(motorId);
+            Serial.println(" --- Invalid motor ID. Use 'A' for Motor A and 'B' for Motor B.");
+        }
+        else if (func == "sin") { // motor ID OK
+            // If the function is sine wave
+            if (motorId == 'a') { // If the command is for motor A
+                sineWaveActiveA = true; // Activate sine wave movement for motor A
+                sineAmplitudeA = value; // Set amplitude for motor A
+                startTimeA = millis(); // Set start time for motor A
+                Serial.println("Motor A moving in sine wave with amplitude " + String(value) + " mm");
+            }
+            if (motorId == 'b') { // If the command is for motor B
+                sineWaveActiveB = true; // Activate sine wave movement for motor B
+                sineAmplitudeB = value; // Set amplitude for motor B
+                startTimeB = millis(); // Set start time for motor B
+                Serial.println("Motor B moving in sine wave with amplitude " + String(value) + " degrees");
+            }
+        }
+        else if (func == "top"){
+            if (motorId == 'a') { // If the command is for motor A
+                sineWaveActiveA = false; // Deactivate sine wave movement for motor A
+                motorControlA.stop();
+                Serial.println("** STOP Motor A **");
+            } 
+            if (motorId == 'b') { // If the command is for motor B
+                sineWaveActiveB = false; // Deactivate sine wave movement for motor B
+                motorControlB.stop();
+                Serial.println("** STOP Motor B **");
+            }
+        }
+        else {
+               // If the command is a direct move command
+            value = command.substring(1).toDouble(); // Get the setpoint value after the motor ID
+            
+            if (motorId == 'a') { // If the command is for motor A
+                sineWaveActiveA = false; // Deactivate sine wave movement for motor A
+                motorControlA.move_to(convertMMToSteps(value)); // Move motor A to the setpoint
+                Serial.println("Motor A moving to " + String(value) + " mm");
+            } 
+            if (motorId == 'b') { // If the command is for motor B
+                sineWaveActiveB = false; // Deactivate sine wave movement for motor B
+                motorControlB.move_to(convertDegreesToSteps(value)); // Move motor B to the setpoint
+                Serial.println("Motor B moving to " + String(value) + " degrees");
+            }
+       }
+    }
+}
+
+
 void printMotorStatus() {
     double positionA = motorControlA.get_position(); // Get the current position of motor A
     double positionB = motorControlB.get_position(); // Get the current position of motor B
     double setpointA = motorControlA._pid_setpoint; // Get the current setpoint of motor A
     double setpointB = motorControlB._pid_setpoint; // Get the current setpoint of motor B
 
-    // Print the status of both motors
-    String output = "motor a,set:" + String(convertStepsToMM(setpointA)) + " mm,pos:" + String(convertStepsToMM(positionA)) + " mm" + 
-                    ";motor b,set:" + String(convertStepsToDegrees(setpointB)) + " degrees,pos:" + String(convertStepsToDegrees(positionB)) + " degrees";
+    static uint8_t lineCounter = 0;
+    if (lineCounter == 0){
+        Serial.println ("  == MOTOR A ==\t\t\t== MOTOR B ==");
+        Serial.println ("-- set,  pos mm \t--\t set,  pos degrees --");
+    }
+    lineCounter++;
+    if (lineCounter > 16) lineCounter = 0;
+
+    String output = String(convertStepsToMM(setpointA)) + "\t\t" + String(convertStepsToMM(positionA)) + " \t**\t " + 
+                    String(convertStepsToDegrees(setpointB)) + "\t\t" + String(convertStepsToDegrees(positionB));
     Serial.println(output);
 }
 
-double convertStepsToMM(double steps) {
+// === unit conversions ===
+double convertStepsToMM(double steps) {     //  MOTOR_A radius Drive
     // Convert steps to millimeters based on CPR, gear reduction ratio, and linear advance per revolution
-    return (steps / (CPR * GEAR_REDUCTION_RATIO)) * LINEAR_ADVANCE_PER_REVOLUTION_MM;
+    return (steps / (CPR * MOTOR_A_FINAL_RATIO)) * LINEAR_ADVANCE_PER_REVOLUTION_MM;
 }
 
 double convertMMToSteps(double mm) {
     // Convert millimeters to steps based on CPR, gear reduction ratio, and linear advance per revolution
-    return (mm / LINEAR_ADVANCE_PER_REVOLUTION_MM) * (CPR * GEAR_REDUCTION_RATIO);
+    return (mm / LINEAR_ADVANCE_PER_REVOLUTION_MM) * (CPR * MOTOR_A_FINAL_RATIO);
 }
 
 double convertStepsToDegrees(double steps) {
     // Convert steps to degrees based on CPR and gear reduction ratio
-    return (steps / (CPR * GEAR_REDUCTION_RATIO)) * 360.0;
+    return (steps / (CPR * MOTOR_B_FINAL_RATIO)) * 360.0;
 }
 
 double convertDegreesToSteps(double degrees) {
     // Convert degrees to steps based on CPR and gear reduction ratio
-    return (degrees / 360.0) * (CPR * GEAR_REDUCTION_RATIO);
+    return (degrees * CPR * MOTOR_B_FINAL_RATIO / 360.0);
 }
