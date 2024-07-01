@@ -68,7 +68,8 @@ unsigned long startTimeB; // Start time for sine wave movement of motor B
 // Function declarations
 void configurePins();
 void initializeMotors();
-void handleSerialInput();
+void handleSerialInputOscar();
+void handleSerialInputKWC();
 void printMotorStatus();
 double convertStepsToMM(double steps);
 double convertMMToSteps(double mm);
