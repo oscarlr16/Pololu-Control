@@ -31,14 +31,13 @@
 /* -- MOTOR_B is the Angle Drive --*/
 // motor B ratios 250, 298, 350
 #define MOTOR_B_GEAR_RATIO 350
-// is this right? or is it 45/12?
 #define MOTOR_B_BELT_RATIO 50/12
 #define MOTOR_B_FINAL_RATIO MOTOR_B_GEAR_RATIO*MOTOR_B_BELT_RATIO
 
 
 // PID tunings for Motor A
 #define MOTOR_A_P 0.7
-#define MOTOR_A_I 0.09
+#define MOTOR_A_I 0.001
 #define MOTOR_A_D 0.01
 
 // PID tunings for Motor B
@@ -95,24 +94,26 @@ void loop() {
     handleSerialInputOscar(); // Handle serial input from the user
     //handleSerialInputKWC();
 
+    double freqA = 0.2; // Hz
+    double freqB = 0.2; // Hz
+
     // add update rate code
     u_int64_t sineInterval = 50;
     static u_int64_t lastSine = 0;
     if (now > lastSine + sineInterval){
         lastSine = now;
         if (sineWaveActiveA) { // If sine wave movement is active for motor A
-            double time = (millis() - startTimeA) / 1000.0; // Calculate elapsed time in seconds
-            double setpoint = MOTOR_A_MID + sineAmplitudeA * sin(2 * PI * time); // Calculate sine wave setpoint
+            unsigned long timeA = (millis() - startTimeA); // Calculate elapsed time in milliseconds
+            double setpoint = (double)(MOTOR_A_MID) + sineAmplitudeA * sin((2.0 * PI) * ((double)(timeA)/1000.0)*freqA); // Calculate sine wave setpoint
             motorControlA.move_to(convertMMToSteps(setpoint)); // Move motor A to the calculated setpoint
         }
         if (sineWaveActiveB) { // If sine wave movement is active for motor B
         // Serial.println("=========================== sin B active =================");
-            double time = (millis() - startTimeB) / 1000.0; // Calculate elapsed time in seconds
-            double setpoint = sineAmplitudeB * sin(2 * PI * time); // Calculate sine wave setpoint
-            motorControlB.move_to(convertDegreesToSteps(setpoint)); // Move motor B to the calculated setpoint
+            unsigned long timeB = (millis() - startTimeB); // Calculate elapsed time in milliseconds
+            double setpointB = sineAmplitudeB * sin((2.0 * PI) * ((double)(timeB)/1000.0)*freqB); // Calculate sine wave setpoint
+            motorControlB.move_to(convertDegreesToSteps(setpointB)); // Move motor B to the calculated setpoint
         }
     }
-    //delay(100); // Delay for 100 milliseconds
 }
 
 void configurePins() {
@@ -275,8 +276,8 @@ void printMotorStatus() {
     }
     lineCounter++;
     if (lineCounter > 16) lineCounter = 0;
-
-    String output = String(convertStepsToMM(setpointA)) + "\t\t" + String(convertStepsToMM(positionA)) + " \t**\t " + 
+// added postitionA (in steps) just for debugging
+    String output = String(convertStepsToMM(setpointA)) + "\t\t" + String(convertStepsToMM(positionA)) + " \t "+ String(positionA) + " \t**\t " + 
                     String(convertStepsToDegrees(setpointB)) + "\t\t" + String(convertStepsToDegrees(positionB));
     Serial.println(output);
 }
