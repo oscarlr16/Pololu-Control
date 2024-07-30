@@ -17,6 +17,7 @@
 #define MOTOR_A_MAX_AMPLITUDE 90.0
 
 // Position Limits degrees
+//#define MOTOR_B_MAX 90
 #define MOTOR_B_MAX 37.0/2
 #define MOTOR_B_MIN -37.0/2
 #define MOTOR_B_MID 0.0
@@ -26,16 +27,16 @@
 #define CPR 12 
 
 /* -- MOTOR_A is the radius Drive --*/
-// motor A ratios 5, 10 , 15
-#define MOTOR_A_GEAR_RATIO 5
+// motor A ratios 4.995, 9.96 , 15.25
+#define MOTOR_A_GEAR_RATIO 9.96
 #define MOTOR_A_SHAFT_RATIO 20/14
 #define MOTOR_A_FINAL_RATIO MOTOR_A_GEAR_RATIO*MOTOR_A_SHAFT_RATIO
 // Linear advance per revolution in mm
-#define LINEAR_ADVANCE_PER_REVOLUTION_MM 10.0 
+#define LINEAR_ADVANCE_PER_REVOLUTION_MM 8.0 
 
 /* -- MOTOR_B is the Angle Drive --*/
-// motor B ratios 250, 298, 350
-#define MOTOR_B_GEAR_RATIO 350
+// motor B ratios 248.98, 297.92, 379.17
+#define MOTOR_B_GEAR_RATIO 297.92
 #define MOTOR_B_BELT_RATIO 50/12
 #define MOTOR_B_FINAL_RATIO MOTOR_B_GEAR_RATIO*MOTOR_B_BELT_RATIO
 
@@ -57,20 +58,17 @@
 HardwareSerial uart_0(0);
 UartHandler uartHandler(uart_0);
 
-DCMotorDriver motorA(AIN1, AIN2, PWMA_PIN, 0, PINA_ENCODER_A, PINA_ENCODER_B); // PWM channel 0 for motor A
-DCMotorDriver motorB(BIN1, BIN2, PWMB_PIN, 1, PINB_ENCODER_A, PINB_ENCODER_B); // PWM channel 1 for motor B
+//DCMotorDriver motorA(AIN1, AIN2, PWMA_PIN, 0, PINA_ENCODER_A, PINA_ENCODER_B); // PWM channel 0 for motor A
+DCMotorDriver motorA(AIN2, AIN1, PWMA_PIN, PWMA_CHANNEL, PINA_ENCODER_B, PINA_ENCODER_A);  // adjusted IN & ENCODER to switch rotation
+DCMotorDriver motorB(BIN1, BIN2, PWMB_PIN, PWMB_CHANNEL, PINB_ENCODER_A, PINB_ENCODER_B); 
 DCMotorControl motorControlA(motorA);
 DCMotorControl motorControlB(motorB);
 
 // all of the template arguments below are optional, but it is useful to adjust them to save memory (by lowering the limits) or allow larger inputs (by increasing the limits)
-// limit number of commands to at most 5
-// limit number of arguments per command to at most 3
-// limit length of command names to 10 characters
-// limit size of all arguments to 15 bytes (e.g., the argument "\x41\x42\x43" uses 14 characters to represent the string but is actually only 3 bytes, 0x41, 0x42, and 0x43)
-// limit size of response strings to 64 bytes
+// number of commands,  number of arguments per command, length of command names (characters), size of all arguments (bytes), size of response strings (bytes)
+// (e.g., the argument "\x41\x42\x43" uses 14 characters to represent the string but is actually only 3 bytes, 0x41, 0x42, and 0x43)
 typedef CommandParser<10, 4, 10, 15, 64> MyCommandParser;
-// or just the default values
-//typedef CommandParser<> MyCommandParser;
+//typedef CommandParser<> MyCommandParser;   // or just use the default values
 MyCommandParser parser;
 
 // ======== Global variables ========
@@ -99,7 +97,7 @@ struct motorData_t mtrBdat;
     double freqB = 0.2; // Hz
 
 // other global vars
-char buffer[70];
+char buffer[80];
 u_int64_t now;
 u_int64_t reportInterval = 3000;
 enum rMode {PLOT, TERMINAL, NONE};
@@ -364,6 +362,10 @@ void plotMotorStatus() {
                     ",B_set:" + String(convertStepsToDegrees(setpointB), 2) +
                     ",B_pos:" + String(convertStepsToDegrees(positionB), 2);
 
+   /* String output = "A_set:" + String(convertStepsToMM(setpointA), 2) + 
+                    ",A_pos:" + String(convertStepsToMM(positionA), 2) +
+                    ",B_set:" + String(convertStepsToDegrees(setpointB), 2) +
+                    ",B_pos:" + String(convertStepsToDegrees(positionB), 2);  */
     Serial.println(output);
 }
 
@@ -409,7 +411,8 @@ void cmdHelp(MyCommandParser::Argument *args, char *response) {
   STATUS\n\r\
   FREQ A or B float(Hz)\n\r\
   PID A or B float float float\n\r\
-  ===\n\r");
+  REPORT P or T int\n\r"\
+  );
   Serial.println("test command: TEST <string> <double> <int64> <uint64>");
   Serial.println("example: TEST \"\\x41bc\\ndef\" -1.234e5 -123 123");
   Serial.println("example: MOVE A 21.5");
@@ -532,26 +535,30 @@ void cmdSin(MyCommandParser::Argument *args, char *response)  // rewrite sin com
   Serial.println(buffer);
 };
 
-void cmdStatus(MyCommandParser::Argument *args, char *response) // get the actual numbers
+void cmdStatus(MyCommandParser::Argument *args, char *response) 
 {
-  Serial.println("\n=== Status report === PID numbers are bogus!!");
+  double tempP; double tempI; double tempD;
   
-  sprintf(buffer, "kPa=%3.3f \tkIa=%3.3f\tkDa=%3.3f\t FreqA=%3.3f Hz",  5.0, 0.6, 0.07, freqA); /// get the actual numbers
+  Serial.println("\n=== Status report === ");
+  
+  motorControlA.get_pid_tunings( tempP,  tempI,  tempD);
+  sprintf(buffer, "kPa=%3.3f \tkIa=%3.3f\tkDa=%3.3f\t FreqA=%3.3f Hz",  tempP,  tempI,  tempD, freqA); /// get the actual numbers
   Serial.println(buffer);
   buffer[0] = 0;
   
-  sprintf(buffer, "kPb=%3.3f \tkIb=%3.3f\tkDb=%3.3f\t FreqB=%3.3f Hz",  1.0, 2.0 , 3.0 , freqB); /// get the actual numbers
+  motorControlB.get_pid_tunings( tempP,  tempI,  tempD);
+  sprintf(buffer, "kPb=%3.3f \tkIb=%3.3f\tkDb=%3.3f\t FreqB=%3.3f Hz",  tempP,  tempI,  tempD , freqB); /// get the actual numbers
   Serial.println(buffer);
   buffer[0] = 0;
 
   sprintf(buffer, "sine interval = %d ms,  Report Interval = %d ms,  PID Interval ?? ms" ,  sineInterval, reportInterval ); /// get the actual numbers
   Serial.println(buffer);
-  Serial.println(reportInterval);
+  Serial.println(reportInterval); // needed for bug work around
 }
 
 
 
-void cmdFreq(MyCommandParser::Argument *args, char *response) // REFACTOR add filters and get the actual variables
+void cmdFreq(MyCommandParser::Argument *args, char *response) //  add min/max filters
 {
   char motor_s[3];
   snprintf(motor_s, 2, "%s", args[0].asString );  // make args[0] a char array so that switch has integers to compare
@@ -559,56 +566,63 @@ void cmdFreq(MyCommandParser::Argument *args, char *response) // REFACTOR add fi
   switch(motor_s[0]){
     case 'a':
     case 'A':
-      // filter for min & max allowable positions
-      sprintf(buffer, "Set Frequency %s %3.3f (Hz)", args[0].asString, args[1].asDouble);
-      Serial.println(buffer);  
+      // filter for min & max
+      sprintf(buffer, "Set Frequency %s %3.3f (Hz)", args[0].asString, args[1].asDouble);  
       freqA = args[1].asDouble;  // SET FREQ HERE   
       break;
     case 'b':
     case 'B':
-      // filter for min & max allowable positions
+      // filter for min & max
       sprintf(buffer, "Set Frequency %s %3.3f (Hz)", args[0].asString, args[1].asDouble);
-      Serial.println(buffer);
+      //Serial.println(buffer);
       freqB = args[1].asDouble; // SET FREQ HERE
       break;
     default:
       sprintf(buffer, "  %s is not a valid input \n\r\
       Use  A or B or * \n\r",args[0].asString);
-      Serial.println(buffer);
-  }  
+      //Serial.println(buffer);
+  }
+  Serial.println(buffer);  
 }
 
-#define TESTNUM 0.01
+
 void cmdPID(MyCommandParser::Argument *args, char *response)// This is a mess. // get the actual numbers
 {
+  double tempP; double tempI; double tempD;
   char motor_s[3];
   snprintf(motor_s, 2, "%s", args[0].asString );  // make args[0] a char array so that switch has integers to compare
   
   switch(motor_s[0]){
     case 'a':
     case 'A':
-      sprintf(buffer, "Default PID values: %s kP=%3.3f \tkI=%3.3f\tkD=%3.3f from #define",\
-      args[0].asString, TESTNUM,  4, 5.0);// get the actual numbers from #defines
+      sprintf(buffer, "  Default PID values: %s  kP=%3.3f \tkI=%3.3f\tkD=%3.3f from #define",\
+      args[0].asString, MOTOR_A_P, MOTOR_A_I, MOTOR_A_D);// get the actual numbers from #defines
       Serial.println(buffer);
-      buffer[0] = 0;
+      //buffer[0] = 0;
 
-      Serial.println("current A PID values: ");  /// get the actual numbers from PID code
-      Serial.println("numbers here");
+      motorControlA.get_pid_tunings( tempP,  tempI,  tempD);
+      sprintf(buffer, "Current A PID values: %s  kP=%3.3f \tkI=%3.3f\tkD=%3.3f",\
+      args[0].asString,  tempP, tempI, tempD );// get the actual numbers from #defines
+      Serial.println(buffer);
 
       // consider filtering for min & max allowable values 
+      motorControlA.set_pid_tunings(args[1].asDouble, args[2].asDouble, args[3].asDouble); // Set PID tunings
       break;
 
     case 'b':
     case 'B':
-      sprintf(buffer, "Default PID values: %s kP=%3.3f \tkI=%3.3f\tkD=%3.3f from #define",\
-      args[0].asString, TESTNUM,  4, 5.0);// get the actual numbers from #defines
+      sprintf(buffer, "  Default PID values: %s  kP=%3.3f \tkI=%3.3f\tkD=%3.3f from #define",\
+      args[0].asString,  MOTOR_B_P, MOTOR_B_I, MOTOR_B_D);// get the actual numbers from #defines
       Serial.println(buffer);
-      buffer[0] = 0;
+      //buffer[0] = 0;
 
-      Serial.println("current B PID values: ");  /// get the actual numbers from PID code
-      Serial.println("numbers here");
+      motorControlB.get_pid_tunings( tempP,  tempI,  tempD);
+      sprintf(buffer, "Current A PID values: %s  kP=%3.3f \tkI=%3.3f\tkD=%3.3f",\
+      args[0].asString,  tempP, tempI, tempD );// get the actual numbers from #defines
+      Serial.println(buffer);
 
       // consider filtering for min & max allowable values 
+      motorControlB.set_pid_tunings(args[1].asDouble, args[2].asDouble, args[3].asDouble); // Set PID tunings
       break;
 
     default:
@@ -618,7 +632,7 @@ void cmdPID(MyCommandParser::Argument *args, char *response)// This is a mess. /
       return;
   }  
 
-  sprintf(buffer, "    New PID values: %s kP=%3.3f \tkI=%3.3f\tkD=%3.3f",\
+  sprintf(buffer, "      New PID values: %s  kP=%3.3f \tkI=%3.3f\tkD=%3.3f",\
     args[0].asString, args[1].asDouble, args[2].asDouble,args[3].asDouble); 
   Serial.println(buffer);
 };
@@ -635,21 +649,22 @@ void cmdReport(MyCommandParser::Argument *args, char *response)
     snprintf(rMode_s, 2, "%s", args[0].asString );  // make args[0] a char array so that switch has integers to compare
 
     switch(rMode_s[0]){
-        case 'p':
-        case 'P':
+      case 'p':
+      case 'P':
         sprintf(buffer, "=== Report === Plot Mode %d ms", args[1].asUInt64);
         Serial.println(buffer);  
         reportMode = PLOT;
         break;
-        case 't':
-        case 'T':
+      case 't':
+      case 'T':
         sprintf(buffer, "=== Report === Terminal report mode %d ms", args[1].asUInt64);
         Serial.println(buffer);
         reportMode = TERMINAL;
         break;
-        default:
-        sprintf(buffer, "=== Report === reporting off  %s  \n\r\
-        Use  P or T  \n\r",args[0].asString);
+      default:
+        Serial.print("=== Report === reporting off");
+        sprintf(buffer, " - %s\n\r\
+        Use  P for Plot Mode or T for Terminal Mode\n\r",args[0].asString);
         Serial.println(buffer);
         reportMode =  NONE;
     }  
