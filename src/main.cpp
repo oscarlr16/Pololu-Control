@@ -81,7 +81,8 @@ double sineAmplitudeA = 0; // Amplitude for sine wave movement of motor A
 double sineAmplitudeB = 0; // Amplitude for sine wave movement of motor B
 unsigned long startTimeA; // Start time for sine wave movement of motor A
 unsigned long startTimeB; // Start time for sine wave movement of motor B
-// other global vars
+
+// motor global vars
 struct motorData_t
 {
   bool sinActive;
@@ -97,16 +98,19 @@ struct motorData_t mtrBdat;
     double freqA = 0.2; // Hz
     double freqB = 0.2; // Hz
 
-
+// other global vars
 char buffer[70];
 u_int64_t now;
+u_int64_t reportInterval = 3000;
+enum rMode {PLOT, TERMINAL, NONE};
+enum rMode reportMode = PLOT;
+u_int64_t sineInterval = 25;  // make the interval configurable
 
 // ======== Function declarations ========
 void configurePins();
 void initializeMotors();
 void handleSerialInputOscar();
-void handleSerialInputKWC();
-void printMotorStatus();
+void plotMotorStatus();
 double convertStepsToMM(double steps);
 double convertMMToSteps(double mm);
 double convertStepsToDegrees(double steps);
@@ -121,6 +125,7 @@ void cmdSin(MyCommandParser::Argument *args, char *response);
 void cmdStatus(MyCommandParser::Argument *args, char *response);
 void cmdFreq(MyCommandParser::Argument *args, char *response);
 void cmdPID(MyCommandParser::Argument *args, char *response);
+void cmdReport(MyCommandParser::Argument *args, char *response);
 
 void motorControls(void);  // uses globals
 
@@ -131,7 +136,6 @@ void setup() {
     Serial.println(__DATE__);
     configurePins(); // Configure the necessary pins
     initializeMotors(); // Initialize the motors
-    pinMode(2,OUTPUT);  //LED
 
     // cmd from code example
     parser.registerCommand("TEST", "sdiu", &cmd_test);
@@ -144,6 +148,7 @@ void setup() {
     parser.registerCommand("STATUS", "",  &cmdStatus);
     parser.registerCommand("FREQ", "sd",  &cmdFreq);
     parser.registerCommand("PID", "sddd", &cmdPID);
+    parser.registerCommand("REPORT", "su", &cmdReport);
 
     mtrAdat.stop = true;
     mtrBdat.stop = true;
@@ -152,15 +157,22 @@ void setup() {
 void loop() {
     now = millis();
 
-    u_int64_t reportInterval = 3000;
     static u_int64_t lastReport = 0;
     if (now > lastReport + reportInterval){
         lastReport = now;
-        printMotorStatus(); // Print the current status of the motors
+        switch (reportMode){
+        case PLOT:
+            plotMotorStatus(); // Plot the current status of the motors
+            break;
+        case TERMINAL:
+            // need a new function for terminal report
+        break;
+        default:  // no report
+            break;
+        }
     }
 
     // handleSerialInputOscar(); // Handle serial input from the user
-    // handleSerialInputKWC();
 
     // NOW USING CommandParser
   if (Serial.available()) {
@@ -199,6 +211,7 @@ void loop() {
 void configurePins() {
     pinMode(STBY_PIN, OUTPUT); // Set standby pin as output
     digitalWrite(STBY_PIN, HIGH); // Set standby pin to HIGH to enable motor driver
+    pinMode(2,OUTPUT);  //LED
 }
 
 void initializeMotors() {
@@ -243,7 +256,7 @@ void motorControls(void)
     }
 
 
-    u_int64_t sineInterval = 25;  // make the interval configurable
+    
     static u_int64_t lastSine = 0;
     if (now > lastSine + sineInterval){
         lastSine = now;
@@ -339,81 +352,7 @@ void handleSerialInputOscar() {
 }
 
 
-
-void handleSerialInputKWC() {
-    if (Serial.available()) { // Check if data is available in the serial buffer
-        String command = Serial.readStringUntil('\n'); // Read the incoming command until newline
-        char motorId = (char)32 | command.charAt(0); // Get the motor ID (A or B)
-        double value = 0;
-        String func = "";
-
-        // Check for valid command length
-        if (command.length() > 1) {
-            // Parse sine wave command
-            if (command.indexOf("sin") != -1) {
-                func = "sin";
-                value = command.substring(1, command.indexOf("sin")).toDouble();
-            } 
-            // Parse direct move command
-            else if (isDigit(command.charAt(1)) || (command.charAt(1) == '-' && isDigit(command.charAt(2)))) {
-                value = command.substring(1).toDouble();
-            } 
-            // Parse stop command
-            else {
-                func = command.substring(1);
-            }
-        }
-
-        // Handle sine wave movement commands
-        if (func == "sin") {
-            if (motorId == 'a') {
-                sineWaveActiveA = true; // Activate sine wave movement for motor A
-                sineAmplitudeA = value; // Set amplitude for motor A
-                startTimeA = millis(); // Set start time for motor A
-                Serial.println("Motor A moving in sine wave with amplitude " + String(value) + " mm");
-            } else if (motorId == 'b') {
-                sineWaveActiveB = true; // Activate sine wave movement for motor B
-                sineAmplitudeB = value; // Set amplitude for motor B
-                startTimeB = millis(); // Set start time for motor B
-                Serial.println("Motor B moving in sine wave with amplitude " + String(value) + " degrees");
-            } else {
-                Serial.println("Invalid motor ID. Use 'A' for Motor A and 'B' for Motor B.");
-            }
-        }
-        // Handle stop commands
-        else if (func == "stop" || command == "stop") {
-            if (motorId == 'a' || command == "stop") {
-                sineWaveActiveA = false; // Deactivate sine wave movement for motor A
-                motorControlA.stop();
-                Serial.println("** STOP Motor A **");
-            } 
-            if (motorId == 'b' || command == "stop") {
-                sineWaveActiveB = false; // Deactivate sine wave movement for motor B
-                motorControlB.stop();
-                Serial.println("** STOP Motor B **");
-            }
-            if (command == "stop") {
-                Serial.println("** STOP Both Motors **");
-            }
-        }
-        // Handle direct move commands
-        else {
-            if (motorId == 'a') { // If the command is for motor A
-                sineWaveActiveA = false; // Deactivate sine wave movement for motor A
-                motorControlA.move_to(convertMMToSteps(value)); // Move motor A to the setpoint
-                Serial.println("Motor A moving to " + String(value) + " mm");
-            } 
-            if (motorId == 'b') { // If the command is for motor B
-                sineWaveActiveB = false; // Deactivate sine wave movement for motor B
-                motorControlB.move_to(convertDegreesToSteps(value)); // Move motor B to the setpoint
-                Serial.println("Motor B moving to " + String(value) + " degrees");
-            }
-        }
-    }
-}
-
-
-void printMotorStatus() {
+void plotMotorStatus() {
     double positionA = motorControlA.get_position();
     double positionB = motorControlB.get_position();
     double setpointA = motorControlA._pid_setpoint;
@@ -595,19 +534,22 @@ void cmdSin(MyCommandParser::Argument *args, char *response)  // rewrite sin com
 
 void cmdStatus(MyCommandParser::Argument *args, char *response) // get the actual numbers
 {
-  Serial.println("\n=== Status report ===");
+  Serial.println("\n=== Status report === PID numbers are bogus!!");
   
-  sprintf(buffer, "kPa=%3.3f \tkIa=%3.3f\tkDa=%3.3f\t FreqA=%3.3f Hz",  5.0, 0.6, 0.07, 0.3); /// get the actual numbers
+  sprintf(buffer, "kPa=%3.3f \tkIa=%3.3f\tkDa=%3.3f\t FreqA=%3.3f Hz",  5.0, 0.6, 0.07, freqA); /// get the actual numbers
   Serial.println(buffer);
   buffer[0] = 0;
   
-  sprintf(buffer, "kPb=%3.3f \tkIb=%3.3f\tkDb=%3.3f\t FreqB=%3.3f Hz",  1.0, 2.0 , 3.0 , 0.5); /// get the actual numbers
+  sprintf(buffer, "kPb=%3.3f \tkIb=%3.3f\tkDb=%3.3f\t FreqB=%3.3f Hz",  1.0, 2.0 , 3.0 , freqB); /// get the actual numbers
   Serial.println(buffer);
   buffer[0] = 0;
 
-  sprintf(buffer, "sin compute interval = %d ms \treport interval =%d ms PID compute intraval ?? ms" ,  150, 300 ); /// get the actual numbers
+  sprintf(buffer, "sine interval = %d ms,  Report Interval = %d ms,  PID Interval ?? ms" ,  sineInterval, reportInterval ); /// get the actual numbers
   Serial.println(buffer);
-};
+  Serial.println(reportInterval);
+}
+
+
 
 void cmdFreq(MyCommandParser::Argument *args, char *response) // REFACTOR add filters and get the actual variables
 {
@@ -681,5 +623,37 @@ void cmdPID(MyCommandParser::Argument *args, char *response)// This is a mess. /
   Serial.println(buffer);
 };
 
+void cmdReport(MyCommandParser::Argument *args, char *response)
+{
+// P 100 = Plot 100 ms rate
+// T 500 = Terminal readable half second rate
+// N = None
+
+    reportInterval = args[1].asUInt64;
+
+    char rMode_s[3];
+    snprintf(rMode_s, 2, "%s", args[0].asString );  // make args[0] a char array so that switch has integers to compare
+
+    switch(rMode_s[0]){
+        case 'p':
+        case 'P':
+        sprintf(buffer, "=== Report === Plot Mode %d ms", args[1].asUInt64);
+        Serial.println(buffer);  
+        reportMode = PLOT;
+        break;
+        case 't':
+        case 'T':
+        sprintf(buffer, "=== Report === Terminal report mode %d ms", args[1].asUInt64);
+        Serial.println(buffer);
+        reportMode = TERMINAL;
+        break;
+        default:
+        sprintf(buffer, "=== Report === reporting off  %s  \n\r\
+        Use  P or T  \n\r",args[0].asString);
+        Serial.println(buffer);
+        reportMode =  NONE;
+    }  
+
+}
 
 // EOF
