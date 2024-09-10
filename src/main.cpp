@@ -93,22 +93,23 @@ struct motorData_t
 struct motorData_t mtrAdat;
 struct motorData_t mtrBdat;
 
-    double freqA = 0.2; // Hz
-    double freqB = 0.2; // Hz
+double freqA = 0.2; // Hz
+double freqB = 0.2; // Hz
 
 // other global vars
 char buffer[80];
 u_int64_t now;
+u_int64_t loopPeriod;
 u_int64_t reportInterval = 3000;
-enum rMode {PLOT, TERMINAL, NONE};
-enum rMode reportMode = PLOT;
-u_int64_t sineInterval = 25;  // make the interval configurable
+enum rMode_t {PLOT, TERMINAL, NONE};
+rMode_t reportMode = PLOT;
+u_int64_t sineInterval = 10;  // make the interval configurable  WAS 25
 
 // ======== Function declarations ========
 void configurePins();
 void initializeMotors();
-void handleSerialInputOscar();
-void plotMotorStatus();
+//  depricated void handleSerialInputOscar();
+void printMotorStatus();
 double convertStepsToMM(double steps);
 double convertMMToSteps(double mm);
 double convertStepsToDegrees(double steps);
@@ -124,6 +125,7 @@ void cmdStatus(MyCommandParser::Argument *args, char *response);
 void cmdFreq(MyCommandParser::Argument *args, char *response);
 void cmdPID(MyCommandParser::Argument *args, char *response);
 void cmdReport(MyCommandParser::Argument *args, char *response);
+void cmdZero(MyCommandParser::Argument *args, char *response);
 
 void motorControls(void);  // uses globals
 
@@ -148,29 +150,24 @@ void setup() {
     parser.registerCommand("PID", "sddd", &cmdPID);
     parser.registerCommand("REPORT", "su", &cmdReport);
 
+    parser.registerCommand("ZERO", "s", &cmdZero);
+
     mtrAdat.stop = true;
     mtrBdat.stop = true;
 }
 
 void loop() {
+    uint64_t oldNow = now;
     now = millis();
+    loopPeriod = now - oldNow;
 
     static u_int64_t lastReport = 0;
     if (now > lastReport + reportInterval){
-        lastReport = now;
-        switch (reportMode){
-        case PLOT:
-            plotMotorStatus(); // Plot the current status of the motors
-            break;
-        case TERMINAL:
-            // need a new function for terminal report
-        break;
-        default:  // no report
-            break;
-        }
+      lastReport = now;
+      printMotorStatus(); 
     }
 
-    // handleSerialInputOscar(); // Handle serial input from the user
+    // handleSerialInputOscar(); // depricated Handle serial input from the user
 
     // NOW USING CommandParser
   if (Serial.available()) {
@@ -185,10 +182,6 @@ void loop() {
 
   motorControls();   
 
-
-// MOVED TO MOTOR CONTROLS
-    // add update rate code
-/*    u_int64_t sineInterval = 25;
     static u_int64_t lastSine = 0;
     if (now > lastSine + sineInterval){
         lastSine = now;
@@ -203,7 +196,7 @@ void loop() {
             double setpointB = sineAmplitudeB * sin((2.0 * PI) * ((double)(timeB)/1000.0)*freqB); // Calculate sine wave setpoint
             motorControlB.move_to(convertDegreesToSteps(setpointB)); // Move motor B to the calculated setpoint
         }
-    }*/
+    }
 }
 
 void configurePins() {
@@ -274,23 +267,40 @@ void motorControls(void)
   
 }  // uses globals
 
-void plotMotorStatus() {
-    double positionA = motorControlA.get_position();
-    double positionB = motorControlB.get_position();
-    double setpointA = motorControlA._pid_setpoint;
-    double setpointB = motorControlB._pid_setpoint;
+void printMotorStatus() {
+  double positionA = motorControlA.get_position();
+  double positionB = motorControlB.get_position();
+  double setpointA = motorControlA._pid_setpoint;
+  double setpointB = motorControlB._pid_setpoint;
 
-    String output = "A_set:" + String(convertStepsToMM(setpointA), 2) + 
-                    ",A_pos:" + String(convertStepsToMM(positionA), 2) +
-                    ",A_steps:" + String(positionA, 0) +
-                    ",B_set:" + String(convertStepsToDegrees(setpointB), 2) +
-                    ",B_pos:" + String(convertStepsToDegrees(positionB), 2);
+  String statoutput;
 
-   /* String output = "A_set:" + String(convertStepsToMM(setpointA), 2) + 
+  switch (reportMode)
+  {
+  case PLOT:  // Plot for https://sekigon-gonnoc.github.io/web-serial-plotter/   CSV with labels  OR Arduino Serial Plotter
+    statoutput = String(
+                    "A_set:" + String(convertStepsToMM(setpointA), 2) +
                     ",A_pos:" + String(convertStepsToMM(positionA), 2) +
+                    //",A_steps:" + String(positionA, 0) +
                     ",B_set:" + String(convertStepsToDegrees(setpointB), 2) +
-                    ",B_pos:" + String(convertStepsToDegrees(positionB), 2);  */
-    Serial.println(output);
+                    ",B_pos:" + String(convertStepsToDegrees(positionB), 2));
+    Serial.println(statoutput);
+    break;
+
+  case TERMINAL:
+    statoutput = String(
+                    String(convertStepsToMM(setpointA), 2) + "\t\t" +
+                    String(convertStepsToMM(positionA), 2) + "\t\t" +
+                    String(convertStepsToDegrees(setpointB), 2) + "\t\t" +
+                    String(convertStepsToDegrees(positionB), 2) +"\t|| \t" +
+                    String(loopPeriod));
+    Serial.println(statoutput);
+    break;
+
+  default:
+    break;
+  }
+
 }
 
 // === unit conversions ===
@@ -335,7 +345,8 @@ void cmdHelp(MyCommandParser::Argument *args, char *response) {
   STATUS\n\r\
   FREQ A or B float(Hz)\n\r\
   PID A or B float float float\n\r\
-  REPORT P or T int\n\r"\
+  REPORT P or T or N, int    Plot, Terminal, None \n\r\
+  ZERO A or B or *\n\r"
   );
   Serial.println("test command: TEST <string> <double> <int64> <uint64>");
   Serial.println("example: TEST \"\\x41bc\\ndef\" -1.234e5 -123 123");
@@ -475,12 +486,12 @@ void cmdStatus(MyCommandParser::Argument *args, char *response)
   Serial.println(buffer);
   buffer[0] = 0;
 
-  sprintf(buffer, "sine interval = %d ms,  Report Interval = %d ms,  PID Interval ?? ms" ,  sineInterval, reportInterval ); /// get the actual numbers
+  sprintf(buffer, "sine interval = %d ms" ,  sineInterval); /// get the actual numbers  reportInterval
+  Serial.println(buffer);
+  sprintf(buffer, "Report Interval = %d ms,  PID Interval ?? ms" ,  reportInterval ); /// get the actual numbers  reportInterval
   Serial.println(buffer);
   Serial.println(reportInterval); // needed for bug work around
 }
-
-
 
 void cmdFreq(MyCommandParser::Argument *args, char *response) //  add min/max filters
 {
@@ -575,24 +586,28 @@ void cmdReport(MyCommandParser::Argument *args, char *response)
     switch(rMode_s[0]){
       case 'p':
       case 'P':
-        sprintf(buffer, "=== Report === Plot Mode %d ms", args[1].asUInt64);
-        Serial.println(buffer);  
         reportMode = PLOT;
+        sprintf(buffer, "=== Report === Plot Mode %d ms", args[1].asUInt64);
         break;
       case 't':
       case 'T':
-        sprintf(buffer, "=== Report === Terminal report mode %d ms", args[1].asUInt64);
-        Serial.println(buffer);
         reportMode = TERMINAL;
-        break;
+        Serial.println(buffer);
+        sprintf(buffer, "=== Report === Terminal report mode %d ms", args[1].asUInt64);
+        break;    
       default:
         Serial.print("=== Report === reporting off");
         sprintf(buffer, " - %s\n\r\
-        Use  P for Plot Mode or T for Terminal Mode\n\r",args[0].asString);
+        Use P for WebPlot, T for Terminal, A for ArduinoPlot\n\r",args[0].asString);
         Serial.println(buffer);
         reportMode =  NONE;
     }  
+    Serial.println(buffer);  
+}
 
+void cmdZero(MyCommandParser::Argument *args, char *response) // add motor commands
+{
+  Serial.println("This does nothing. Sorry");
 }
 
 // EOF
