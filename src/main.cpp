@@ -53,6 +53,15 @@
 
 // --- End of User Adjustable Variables ---
 
+double virtualPositionA = 0.0;
+double virtualPositionB = 0.0;
+
+double virtualStepsA = 0.0;
+double virtualStepsB = 0.0;
+
+double virtualOffsetA = 0.0;
+double virtualOffsetB = 0.0;
+
 // Create UART and motor objects
 HardwareSerial uart_0(0);
 UartHandler uartHandler(uart_0);
@@ -115,6 +124,9 @@ double convertStepsToMM(double steps);
 double convertMMToSteps(double mm);
 double convertStepsToDegrees(double steps);
 double convertDegreesToSteps(double degrees);
+void setVirtualPosition(char motor, double position);
+void moveToVirtualPosition(char motor, double target);
+void cmdSetVirtual(MyCommandParser::Argument *args, char *response);
 
 // callback functions
 void cmd_test(MyCommandParser::Argument *args, char *response);
@@ -149,6 +161,7 @@ void setup() {
     parser.registerCommand("FREQ", "sd",  &cmdFreq);
     parser.registerCommand("PID", "sddd", &cmdPID);
     parser.registerCommand("REPORT", "su", &cmdReport);
+    parser.registerCommand("SETVIRTUAL", "sd", &cmdSetVirtual);
 
     mtrAdat.stop = true;
     mtrBdat.stop = true;
@@ -259,18 +272,21 @@ void motorControls(void)
     
     static u_int64_t lastSine = 0;
     if (now > lastSine + sineInterval){
-        lastSine = now;
-        if (mtrAdat.sinActive) { // If sine wave movement is active for motor A
-            unsigned long timeA = (millis() - startTimeA); // Calculate elapsed time in milliseconds
-            double setpoint = (double)(MOTOR_A_MID) + mtrAdat.amplitude/2.0 * sin((2.0 * PI) * ((double)(timeA)/1000.0)*freqA); // Calculate sine wave setpoint
-            motorControlA.move_to(convertMMToSteps(setpoint)); // Move motor A to the calculated setpoint
-        }
-        if (mtrBdat.sinActive) { // If sine wave movement is active for motor B
-        // Serial.println("=========================== sin B active =================");
-            unsigned long timeB = (millis() - startTimeB); // Calculate elapsed time in milliseconds
-            double setpointB = mtrBdat.amplitude/2.0 * sin((2.0 * PI) * ((double)(timeB)/1000.0)*freqB); // Calculate sine wave setpoint
-            motorControlB.move_to(convertDegreesToSteps(setpointB)); // Move motor B to the calculated setpoint
-        }
+      lastSine = now;
+      if (mtrAdat.sinActive) {
+        unsigned long timeA = (millis() - startTimeA);
+        double setpoint = virtualPositionA + mtrAdat.amplitude/2.0 * sin((2.0 * PI) * ((double)(timeA)/1000.0)*freqA);
+        setpoint = fmin(MOTOR_A_MAX, fmax(MOTOR_A_MIN, setpoint));
+        motorControlA.move_to(convertMMToSteps(setpoint));
+        printf("Motor A sin position: %.2f mm\n", setpoint);
+      }
+      if (mtrBdat.sinActive) {
+        unsigned long timeB = (millis() - startTimeB);
+        double setpoint = virtualPositionB + mtrBdat.amplitude/2.0 * sin((2.0 * PI) * ((double)(timeB)/1000.0)*freqB);
+        setpoint = fmin(MOTOR_B_MAX, fmax(MOTOR_B_MIN, setpoint));
+        motorControlB.move_to(convertDegreesToSteps(setpoint));
+        printf("Motor B sin position: %.2f degrees\n", setpoint);
+      }
     }
 
   
@@ -353,16 +369,18 @@ void handleSerialInputOscar() {
 
 
 void plotMotorStatus() {
-    double positionA = motorControlA.get_position();
-    double positionB = motorControlB.get_position();
-    double setpointA = motorControlA._pid_setpoint;
-    double setpointB = motorControlB._pid_setpoint;
+    double realPositionA = convertStepsToMM(motorControlA.get_position());
+    double realPositionB = convertStepsToDegrees(motorControlB.get_position());
+    double virtualPositionA = realPositionA - virtualOffsetA;
+    double virtualPositionB = realPositionB - virtualOffsetB;
+    double virtualSetpointA = convertStepsToMM(motorControlA._pid_setpoint) - virtualOffsetA;
+    double virtualSetpointB = convertStepsToDegrees(motorControlB._pid_setpoint) - virtualOffsetB;
 
-    String output = "A_set:" + String(convertStepsToMM(setpointA), 2) + 
-                    ",A_pos:" + String(convertStepsToMM(positionA), 2) +
-                    ",A_steps:" + String(positionA, 0) +
-                    ",B_set:" + String(convertStepsToDegrees(setpointB), 2) +
-                    ",B_pos:" + String(convertStepsToDegrees(positionB), 2);
+    String output = "A_set:" + String(virtualSetpointA, 2) + 
+                    ",A_pos:" + String(virtualPositionA, 2) +
+                    ",A_steps:" + String(motorControlA.get_position(), 0) +
+                    ",B_set:" + String(virtualSetpointB, 2) +
+                    ",B_pos:" + String(virtualPositionB, 2);
 
     Serial.println(output);
 }
@@ -450,87 +468,44 @@ void cmdStop(MyCommandParser::Argument *args, char *response) // add motor comma
   }  
 }
 
-void cmdMove(MyCommandParser::Argument *args, char *response) // fix filters, add motor commands
-{
-  double target = args[1].asDouble;;
-  char motor_s[3];
-  snprintf(motor_s, 2, "%s", args[0].asString );  // make args[0] a char array so that switch has integers to compare
-  
-  switch(motor_s[0]){
-    case 'a':
-    case 'A':
-      // filter for min & max allowable target positions
-      target = fmin(MOTOR_A_MAX, target);  
-      target = fmax(MOTOR_A_MIN, target);  
-      //set motor command flags here
-      mtrAdat.sinActive = false;
-      mtrAdat.moveActive = true;
-      mtrAdat.stop = false;
-      mtrAdat.target = target;
-      break;
-    case 'b':
-    case 'B':
-      // filter for min & max allowable target positions
-      target = fmin(MOTOR_B_MAX, target);  
-      target = fmax(MOTOR_B_MIN, target);
-      mtrBdat.sinActive = false;
-      mtrBdat.moveActive = true;
-      mtrBdat.stop = false;
-      mtrBdat.target = target;
-      break;
-    default:
-      sprintf(buffer, "  %s is not a valid input \n\r\
-      Use  A or B\n\r",args[0].asString);
-      Serial.println(buffer);
-      return;
-  }
-  sprintf(buffer, "Moving %s to  %3.3f", args[0].asString, target);
-  Serial.println(buffer);
+void cmdMove(MyCommandParser::Argument *args, char *response) {
+    double target = args[1].asDouble;
+    char motor = args[0].asString[0];
+    
+    moveToVirtualPosition(motor, target);
 }
 
-void cmdSin(MyCommandParser::Argument *args, char *response)  // rewrite sin compute,  FIX filters, allow negagive amplitude, add motor commands
+void cmdSin(MyCommandParser::Argument *args, char *response)
 {
-  double amplitude = args[1].asDouble;;
-  char motor_s[3];
-  snprintf(motor_s, 2, "%s", args[0].asString );  // make args[0] a char array so that switch has integers to compare
+  double amplitude = args[1].asDouble;
+  char motor = args[0].asString[0];
   
-  switch(motor_s[0]){
+  switch(motor){
     case 'a':
     case 'A':
-      // filter for min & max allowable positions
-            // filter for min & max allowable target positions
-      amplitude = fmin(MOTOR_A_MAX_AMPLITUDE, amplitude);  
-      amplitude = fmax(-MOTOR_A_MAX_AMPLITUDE, amplitude); 
+      amplitude = fmin(MOTOR_A_MAX_AMPLITUDE, fabs(amplitude));
       mtrAdat.sinActive = true;
       mtrAdat.moveActive = false;
       mtrAdat.stop = false;
       mtrAdat.amplitude = amplitude;
+      startTimeA = millis();
+      printf("Sin wave for Motor A, Amplitude: %.2f mm, Center: %.2f mm\n", amplitude, virtualPositionA);
       break;
     case 'b':
     case 'B':
-          // filter for min & max allowable target positions
-      amplitude = fmin(MOTOR_B_MAX_AMPLITUDE, amplitude);
-      amplitude = fmax(-MOTOR_B_MAX_AMPLITUDE, amplitude);
+      amplitude = fmin(MOTOR_B_MAX_AMPLITUDE, fabs(amplitude));
       mtrBdat.sinActive = true;
       mtrBdat.moveActive = false;
       mtrBdat.stop = false;
       mtrBdat.amplitude = amplitude;
-
-      // filter for min & max allowable positions
-      //sprintf(buffer, "~Sin %s Amplitude %3.3f", args[0].asString, args[1].asDouble);
-      //Serial.println(buffer);
-      //set flags and motor commands here
+      startTimeB = millis();
+      printf("Sin wave for Motor B, Amplitude: %.2f degrees, Center: %.2f degrees\n", amplitude, virtualPositionB);
       break;
     default:
-      sprintf(buffer, "  %s is not a valid input \n\r\
-      Use  A or B\n\r",args[0].asString);
-      Serial.println(buffer);
+      printf("%c is not a valid input. Use A or B\n", motor);
       return;
   }
-
-  sprintf(buffer, "~Sin %s Amplitude %3.3f", args[0].asString, amplitude);
-  Serial.println(buffer);
-};
+}
 
 void cmdStatus(MyCommandParser::Argument *args, char *response) // get the actual numbers
 {
@@ -657,3 +632,48 @@ void cmdReport(MyCommandParser::Argument *args, char *response)
 }
 
 // EOF
+
+void setVirtualPosition(char motor, double position) {
+    if (motor == 'A' || motor == 'a') {
+        virtualOffsetA = convertStepsToMM(motorControlA.get_position()) - position;
+        printf("Motor A virtual position set to %.2f mm\n", position);
+    } else if (motor == 'B' || motor == 'b') {
+        virtualOffsetB = convertStepsToDegrees(motorControlB.get_position()) - position;
+        printf("Motor B virtual position set to %.2f degrees\n", position);
+    } else {
+        printf("Invalid motor specified\n");
+    }
+}
+
+void moveToVirtualPosition(char motor, double target) {
+    if (motor == 'A' || motor == 'a') {
+        double realTarget = target + virtualOffsetA;
+        realTarget = fmin(MOTOR_A_MAX, fmax(MOTOR_A_MIN, realTarget));
+        
+        mtrAdat.sinActive = false;
+        mtrAdat.moveActive = true;
+        mtrAdat.stop = false;
+        mtrAdat.target = realTarget;
+        
+        printf("Moving Motor A to virtual position %.2f mm (real target: %.2f mm)\n", target, realTarget);
+    } else if (motor == 'B' || motor == 'b') {
+        double realTarget = target + virtualOffsetB;
+        realTarget = fmin(MOTOR_B_MAX, fmax(MOTOR_B_MIN, realTarget));
+        
+        mtrBdat.sinActive = false;
+        mtrBdat.moveActive = true;
+        mtrBdat.stop = false;
+        mtrBdat.target = realTarget;
+        
+        printf("Moving Motor B to virtual position %.2f degrees (real target: %.2f degrees)\n", target, realTarget);
+    } else {
+        printf("Invalid motor specified\n");
+    }
+}
+
+void cmdSetVirtual(MyCommandParser::Argument *args, char *response) {
+    double position = args[1].asDouble;
+    char motor = args[0].asString[0];
+    
+    setVirtualPosition(motor, position);
+}
