@@ -70,37 +70,52 @@ This tutorial will guide you through setting up and testing the motor control co
 
 You can control the motors using the following commands via the Serial Monitor:
 
-1. **Move Motor A to a Specific Position (in mm)**:
-   - Command: `A<value>`
-   - Example: `A10` (Moves motor A to 10 mm)
+1. **Move Motor to a Specific Position**:
+   - Command: `MOVE <motor> <value>`
+   - Example: `MOVE A 10` (Moves motor A to 10 mm)
+   - Example: `MOVE B 90` (Moves motor B to 90 degrees)
 
-2. **Move Motor B to a Specific Position (in degrees)**:
-   - Command: `B<value>`
-   - Example: `B90` (Moves motor B to 90 degrees)
+2. **Move Motor in a Sine Wave Pattern**:
+   - Command: `SIN <motor> <amplitude>`
+   - Example: `SIN A 10` (Moves motor A in a sine wave with 10 mm amplitude)
+   - Example: `SIN B 10` (Moves motor B in a sine wave with 10 degrees amplitude)
 
-3. **Move Motor A in a Sine Wave Pattern**:
-   - Command: `A<amplitude>sin`
-   - Example: `A10sin` (Moves motor A in a sine wave with 10 mm amplitude)
+3. **Stop Motor**:
+   - Command: `STOP <motor>`
+   - Example: `STOP A` (Stops motor A)
+   - Example: `STOP B` (Stops motor B)
+   - Use `STOP *` to stop both motors
 
-4. **Move Motor B in a Sine Wave Pattern**:
-   - Command: `B<amplitude>sin`
-   - Example: `B10sin` (Moves motor B in a sine wave with 10 degrees amplitude)
+4. **Set Virtual Position**:
+   - Command: `SETVIRTUAL <motor> <position>`
+   - Example: `SETVIRTUAL A 0` (Sets the current position of motor A as 0 mm)
+   - Example: `SETVIRTUAL B 45` (Sets the current position of motor B as 45 degrees)
 
-5. **Stop Motor A or B**:
-   - Command: `Astop` (Stops motor A)
-   - Command: `Bstop` (Stops motor B)
+5. **Set Frequency for Sine Wave**:
+   - Command: `FREQ <motor> <frequency>`
+   - Example: `FREQ A 0.5` (Sets the frequency for motor A's sine wave to 0.5 Hz)
 
-6. **Stop Both Motors**:
-   - Command: `stop` (Stops both motors)
+6. **Set PID Values**:
+   - Command: `PID <motor> <P> <I> <D>`
+   - Example: `PID A 0.7 0.09 0.01` (Sets PID values for motor A)
+
+7. **Get Status**:
+   - Command: `STATUS`
+   - Displays current PID values, frequencies, and other settings
+
+8. **Set Reporting Mode**:
+   - Command: `REPORT <mode> <interval>`
+   - Modes: `P` for Plot, `T` for Terminal, `N` for None
+   - Example: `REPORT P 100` (Sets Plot reporting mode with 100ms interval)
 
 ## Expected Output
 
 After entering the commands, you should see the status of both motors printed in the Serial Monitor:
 
 ```
-motor a,set:10.00 mm,pos:10.00 mm;motor b,set:0.00 degrees,pos:0.00 degrees
-motor a,set:10.00 mm,pos:10.00 mm;motor b,set:90.00 degrees,pos:90.00 degrees
-motor a,set:0.00 mm,pos:0.00 mm;motor b,set:0.00 degrees,pos:0.00 degrees
+A_set:10.00,A_pos:10.12,A_steps:86,B_set:0.00,B_pos:0.00
+A_set:10.00,A_pos:10.12,A_steps:86,B_set:0.00,B_pos:0.00
+A_set:10.00,A_pos:10.12,A_steps:86,B_set:0.00,B_pos:0.00
 ...
 ```
 
