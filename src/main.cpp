@@ -4,64 +4,25 @@
 #include "DCMotorDriver.h"
 #include "DCMotorControl.h"
 #include "UartHandler.h"
+#include "motorConfig.h"
 
 #include <CommandParser.h>
 //commandparser might replace uartHandler- need to test
-
-// User Adjustable Variables
-// You can adjust these variables according to your needs. Changing these values will affect how the motor operates.
-// Position Limits mm
-#define MOTOR_A_MAX 90.0
-#define MOTOR_A_MIN 0.0
-#define MOTOR_A_MID (MOTOR_A_MAX + MOTOR_A_MIN )/2.0
-#define MOTOR_A_MAX_AMPLITUDE 90.0
-
-// Position Limits degrees
-//#define MOTOR_B_MAX 90
-#define MOTOR_B_MAX 37.0/2
-#define MOTOR_B_MIN -37.0/2
-#define MOTOR_B_MID 0.0
-#define MOTOR_B_MAX_AMPLITUDE 37.0
-
-// Counts per revolution (CPR) of the motor encoder
-#define CPR 12 
-
-/* -- MOTOR_A is the radius Drive --*/
-// motor A ratios 4.995, 9.96 , 15.25
-#define MOTOR_A_GEAR_RATIO 9.96
-#define MOTOR_A_SHAFT_RATIO 20/14
-#define MOTOR_A_FINAL_RATIO MOTOR_A_GEAR_RATIO*MOTOR_A_SHAFT_RATIO
-// Linear advance per revolution in mm
-#define LINEAR_ADVANCE_PER_REVOLUTION_MM 8.0 
-
-/* -- MOTOR_B is the Angle Drive --*/
-// motor B ratios 248.98, 297.92, 379.17
-#define MOTOR_B_GEAR_RATIO 297.92
-#define MOTOR_B_BELT_RATIO 50/12
-#define MOTOR_B_FINAL_RATIO MOTOR_B_GEAR_RATIO*MOTOR_B_BELT_RATIO
-
-
-// PID tunings for Motor A
-#define MOTOR_A_P 0.2
-#define MOTOR_A_I 0.1
-#define MOTOR_A_D 0.01
-
-// PID tunings for Motor B
-// starting point 0.7,0.09,0.01
-#define MOTOR_B_P 0.3
-#define MOTOR_B_I 0.0
-#define MOTOR_B_D 0.0
-
-// --- End of User Adjustable Variables ---
 
 // Create UART and motor objects
 HardwareSerial uart_0(0);
 UartHandler uartHandler(uart_0);
 
+// Configure Control Pins and Encoder Inputs for Motor A
+// Note: rotation must be set for different gear ratios.
+// see https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-1.pdf
+//  For odd number of gear pairs. eg.  15:1 100:1, 150:1 up to 1000:1
 //DCMotorDriver motorA(AIN1, AIN2, PWMA_PIN, 0, PINA_ENCODER_A, PINA_ENCODER_B); // PWM channel 0 for motor A
+//  For even number of gear pairs. eg. 5:1, 10:1, 30:1, 50:1 etc.
 DCMotorDriver motorA(AIN2, AIN1, PWMA_PIN, PWMA_CHANNEL, PINA_ENCODER_B, PINA_ENCODER_A);  // adjusted IN & ENCODER to switch rotation
-DCMotorDriver motorB(BIN1, BIN2, PWMB_PIN, PWMB_CHANNEL, PINB_ENCODER_A, PINB_ENCODER_B); 
 DCMotorControl motorControlA(motorA);
+
+DCMotorDriver motorB(BIN1, BIN2, PWMB_PIN, PWMB_CHANNEL, PINB_ENCODER_A, PINB_ENCODER_B); 
 DCMotorControl motorControlB(motorB);
 
 // all of the template arguments below are optional, but it is useful to adjust them to save memory (by lowering the limits) or allow larger inputs (by increasing the limits)
@@ -100,7 +61,7 @@ double freqB = 0.2; // Hz
 char buffer[80];
 u_int64_t now;
 u_int64_t loopPeriod;
-u_int64_t reportInterval = 3000;
+u_int64_t reportInterval = 2000;
 enum rMode_t {PLOT, TERMINAL, NONE};
 rMode_t reportMode = PLOT;
 u_int64_t sineInterval = 10;  // make the interval configurable  WAS 25
@@ -114,6 +75,7 @@ double convertStepsToMM(double steps);
 double convertMMToSteps(double mm);
 double convertStepsToDegrees(double steps);
 double convertDegreesToSteps(double degrees);
+void printStatus(void);
 
 // callback functions
 void cmd_test(MyCommandParser::Argument *args, char *response);
@@ -154,6 +116,8 @@ void setup() {
 
     mtrAdat.stop = true;
     mtrBdat.stop = true;
+
+    printStatus();
 }
 
 void loop() {
@@ -472,9 +436,14 @@ void cmdSin(MyCommandParser::Argument *args, char *response)  // rewrite sin com
 
 void cmdStatus(MyCommandParser::Argument *args, char *response) 
 {
+  printStatus();
+}
+
+void printStatus() // work around so that setup() can print STATUS at boot time. (without confusing parameter issues)
+{
   double tempP; double tempI; double tempD;
   
-  Serial.println("\n=== Status report === ");
+  Serial.println("\n===== Status report ===== ");
   
   motorControlA.get_pid_tunings( tempP,  tempI,  tempD);
   sprintf(buffer, "kPa=%3.3f \tkIa=%3.3f\tkDa=%3.3f\t FreqA=%3.3f Hz",  tempP,  tempI,  tempD, freqA); /// get the actual numbers
@@ -486,11 +455,20 @@ void cmdStatus(MyCommandParser::Argument *args, char *response)
   Serial.println(buffer);
   buffer[0] = 0;
 
-  sprintf(buffer, "sine interval = %d ms" ,  sineInterval); /// get the actual numbers  reportInterval
+  sprintf(buffer, "sine interval = %d ms" ,  sineInterval); 
   Serial.println(buffer);
-  sprintf(buffer, "Report Interval = %d ms,  PID Interval ?? ms" ,  reportInterval ); /// get the actual numbers  reportInterval
+
+  sprintf(buffer, "Report Interval = %d ms" ,  reportInterval ); 
   Serial.println(buffer);
-  Serial.println(reportInterval); // needed for bug work around
+
+  sprintf(buffer, "PID Interval ?? ms UNKNOWN"); /// get the actual numbers
+  Serial.println(buffer);
+  
+  sprintf(buffer, "freqA = %f Hz" ,  freqA ); 
+  Serial.println(buffer);
+  sprintf(buffer, "freqB = %f Hz" ,  freqB ); 
+  Serial.println(buffer);
+
 }
 
 void cmdFreq(MyCommandParser::Argument *args, char *response) //  add min/max filters
