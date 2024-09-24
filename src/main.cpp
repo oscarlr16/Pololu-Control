@@ -118,6 +118,8 @@ void setup() {
     mtrBdat.stop = true;
 
     printStatus();
+
+    motorControlA.set_pid_sample_time(10) ;
 }
 
 void loop() {
