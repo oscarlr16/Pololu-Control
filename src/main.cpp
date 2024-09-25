@@ -40,6 +40,7 @@ double sineAmplitudeA = 0; // Amplitude for sine wave movement of motor A
 double sineAmplitudeB = 0; // Amplitude for sine wave movement of motor B
 unsigned long startTimeA; // Start time for sine wave movement of motor A
 unsigned long startTimeB; // Start time for sine wave movement of motor B
+double phaseAoffset = 90.0;  // offset in degrees
 
 // motor global vars
 struct motorData_t
@@ -78,7 +79,7 @@ double convertDegreesToSteps(double degrees);
 void printStatus(void);
 
 // callback functions
-void cmd_test(MyCommandParser::Argument *args, char *response);
+//void cmd_test(MyCommandParser::Argument *args, char *response);
 void cmdHelp(MyCommandParser::Argument *args, char *response);
 void cmdStop(MyCommandParser::Argument *args, char *response);
 void cmdMove(MyCommandParser::Argument *args, char *response);
@@ -88,6 +89,8 @@ void cmdFreq(MyCommandParser::Argument *args, char *response);
 void cmdPID(MyCommandParser::Argument *args, char *response);
 void cmdReport(MyCommandParser::Argument *args, char *response);
 void cmdZero(MyCommandParser::Argument *args, char *response);
+void cmdPhase(MyCommandParser::Argument *args, char *response);
+
 
 void motorControls(void);  // uses globals
 
@@ -100,7 +103,7 @@ void setup() {
     initializeMotors(); // Initialize the motors
 
     // cmd from code example
-    parser.registerCommand("TEST", "sdiu", &cmd_test);
+//    parser.registerCommand("TEST", "sdiu", &cmd_test);
     // base commands
     parser.registerCommand("HELP", "",    &cmdHelp);
     parser.registerCommand("STOP", "s",   &cmdStop);
@@ -113,6 +116,7 @@ void setup() {
     parser.registerCommand("REPORT", "su", &cmdReport);
 
     parser.registerCommand("ZERO", "s", &cmdZero);
+    parser.registerCommand("PHASE", "d",  &cmdPhase);
 
     mtrAdat.stop = true;
     mtrBdat.stop = true;
@@ -120,6 +124,7 @@ void setup() {
     printStatus();
 
     motorControlA.set_pid_sample_time(10) ;
+    motorControlB.set_pid_sample_time(10) ;
 }
 
 void loop() {
@@ -133,10 +138,7 @@ void loop() {
       printMotorStatus(); 
     }
 
-    // handleSerialInputOscar(); // depricated Handle serial input from the user
-
-    // NOW USING CommandParser
-  if (Serial.available()) {
+  if (Serial.available()) {  // NOW USING CommandParser
     char line[128];
     size_t lineLength = Serial.readBytesUntil('\n', line, 127);
     line[lineLength] = '\0';
@@ -147,23 +149,7 @@ void loop() {
   }
 
   motorControls();   
-
-    static u_int64_t lastSine = 0;
-    if (now > lastSine + sineInterval){
-        lastSine = now;
-        if (sineWaveActiveA) { // If sine wave movement is active for motor A
-            unsigned long timeA = (millis() - startTimeA); // Calculate elapsed time in milliseconds
-            double setpoint = (double)(MOTOR_A_MID) + sineAmplitudeA * sin((2.0 * PI) * ((double)(timeA)/1000.0)*freqA); // Calculate sine wave setpoint
-            motorControlA.move_to(convertMMToSteps(setpoint)); // Move motor A to the calculated setpoint
-        }
-        if (sineWaveActiveB) { // If sine wave movement is active for motor B
-        // Serial.println("=========================== sin B active =================");
-            unsigned long timeB = (millis() - startTimeB); // Calculate elapsed time in milliseconds
-            double setpointB = sineAmplitudeB * sin((2.0 * PI) * ((double)(timeB)/1000.0)*freqB); // Calculate sine wave setpoint
-            motorControlB.move_to(convertDegreesToSteps(setpointB)); // Move motor B to the calculated setpoint
-        }
-    }
-}
+} // END OF loop
 
 void configurePins() {
     pinMode(STBY_PIN, OUTPUT); // Set standby pin as output
@@ -180,57 +166,52 @@ void initializeMotors() {
 
 void motorControls(void)
 { // call this every loop.   Use millis to control sine update rate.
+  if(mtrAdat.stop){
+    mtrAdat.sinActive = false;
+    mtrAdat.moveActive = false;
+    motorControlA.stop();
+  }
+  if(mtrAdat.sinActive & mtrAdat.moveActive){ // this is an error and should never happen
+    motorControlA.stop();
+    mtrAdat.stop = true;
+  }
+  if(mtrAdat.moveActive){
+    motorControlA.move_to(convertMMToSteps(mtrAdat.target)); // Move motor A to the setpoint
+  }
   
-  // TEST PRINTING
-//  sprintf(buffer, "A    %d    %d    %d    %3.3f     %3.3f",\
-    mtrAdat.sinActive,  mtrAdat.moveActive,  mtrAdat.stop,  mtrAdat.amplitude, mtrAdat.target);
-  //Serial.println(buffer);  
+  if(mtrBdat.stop){
+    mtrBdat.sinActive = false;
+    mtrBdat.moveActive = false;
+    motorControlB.stop();
+  }
+  if(mtrBdat.sinActive & mtrBdat.moveActive){ // this is an error and should never happen
+    motorControlB.stop();
+    mtrBdat.stop = true;
+  }
+  if(mtrBdat.moveActive){
+    motorControlB.move_to(convertDegreesToSteps(mtrBdat.target)); // Move to the setpoint
+  }
 
-    if(mtrAdat.stop){
-        mtrAdat.sinActive = false;
-        mtrAdat.moveActive = false;
-        motorControlA.stop();
-    }
-    if(mtrAdat.sinActive & mtrAdat.moveActive){ // this is an error and should never happen
-        motorControlA.stop();
-        mtrAdat.stop = true;
-    }
-    if(mtrAdat.moveActive){
-        motorControlA.move_to(convertMMToSteps(mtrAdat.target)); // Move motor A to the setpoint
-    }
-    
-    if(mtrBdat.stop){
-        mtrBdat.sinActive = false;
-        mtrBdat.moveActive = false;
-        motorControlB.stop();
-    }
-    if(mtrBdat.sinActive & mtrBdat.moveActive){ // this is an error and should never happen
-        motorControlB.stop();
-        mtrBdat.stop = true;
-    }
-    if(mtrBdat.moveActive){
-        motorControlB.move_to(convertDegreesToSteps(mtrBdat.target)); // Move to the setpoint
+  double setpoint;
+  static u_int64_t lastSine = 0;
+  if (now > lastSine + sineInterval){
+    lastSine = now;
+    if (mtrAdat.sinActive) { // If sine wave movement is active for motor A
+      unsigned long timeA = (millis() - startTimeA); // Calculate elapsed time in milliseconds
+      setpoint = (double)(MOTOR_A_MID) + mtrAdat.amplitude/2.0 * sin((2.0 * PI) * ((double)(timeA)/1000.0)*freqA + (PI * phaseAoffset/360.0)); // Calculate sine wave setpoint
+      //setpoint = (double)(MOTOR_A_MID) + mtrAdat.amplitude/2.0 * sin((2.0 * PI)  + (PI * phaseAoffset / 360.0)); // PHASE TEST
+      motorControlA.move_to(convertMMToSteps(setpoint)); // Move motor A to the calculated setpoint
     }
 
-
-    
-    static u_int64_t lastSine = 0;
-    if (now > lastSine + sineInterval){
-        lastSine = now;
-        if (mtrAdat.sinActive) { // If sine wave movement is active for motor A
-            unsigned long timeA = (millis() - startTimeA); // Calculate elapsed time in milliseconds
-            double setpoint = (double)(MOTOR_A_MID) + mtrAdat.amplitude/2.0 * sin((2.0 * PI) * ((double)(timeA)/1000.0)*freqA); // Calculate sine wave setpoint
-            motorControlA.move_to(convertMMToSteps(setpoint)); // Move motor A to the calculated setpoint
-        }
-        if (mtrBdat.sinActive) { // If sine wave movement is active for motor B
-        // Serial.println("=========================== sin B active =================");
-            unsigned long timeB = (millis() - startTimeB); // Calculate elapsed time in milliseconds
-            double setpointB = mtrBdat.amplitude/2.0 * sin((2.0 * PI) * ((double)(timeB)/1000.0)*freqB); // Calculate sine wave setpoint
-            motorControlB.move_to(convertDegreesToSteps(setpointB)); // Move motor B to the calculated setpoint
-        }
+    if (mtrBdat.sinActive) { // If sine wave movement is active for motor B
+    // Serial.println("=========================== sin B active =================");
+      unsigned long timeB = (millis() - startTimeB); // Calculate elapsed time in milliseconds
+      double setpointB = mtrBdat.amplitude/2.0 * sin((2.0 * PI) * ((double)(timeB)/1000.0)*freqB); // Calculate sine wave setpoint
+      motorControlB.move_to(convertDegreesToSteps(setpointB)); // Move motor B to the calculated setpoint
     }
+  }
 
-  
+
 }  // uses globals
 
 void printMotorStatus() {
@@ -239,28 +220,28 @@ void printMotorStatus() {
   double setpointA = motorControlA._pid_setpoint;
   double setpointB = motorControlB._pid_setpoint;
 
-  String statoutput;
+  String statOutput;
 
   switch (reportMode)
   {
   case PLOT:  // Plot for https://sekigon-gonnoc.github.io/web-serial-plotter/   CSV with labels  OR Arduino Serial Plotter
-    statoutput = String(
+    statOutput = String(
                     "A_set:" + String(convertStepsToMM(setpointA), 2) +
                     ",A_pos:" + String(convertStepsToMM(positionA), 2) +
                     //",A_steps:" + String(positionA, 0) +
                     ",B_set:" + String(convertStepsToDegrees(setpointB), 2) +
                     ",B_pos:" + String(convertStepsToDegrees(positionB), 2));
-    Serial.println(statoutput);
+    Serial.println(statOutput);
     break;
 
   case TERMINAL:
-    statoutput = String(
+    statOutput = String(
                     String(convertStepsToMM(setpointA), 2) + "\t\t" +
                     String(convertStepsToMM(positionA), 2) + "\t\t" +
                     String(convertStepsToDegrees(setpointB), 2) + "\t\t" +
                     String(convertStepsToDegrees(positionB), 2) +"\t|| \t" +
                     String(loopPeriod));
-    Serial.println(statoutput);
+    Serial.println(statOutput);
     break;
 
   default:
@@ -293,7 +274,7 @@ double convertDegreesToSteps(double degrees) {
 
 // callback functions  // need to improve text handling of most callbacks with sprintf and/or flash not RAM
 
-  
+/*  cmd_test from parser library
 void cmd_test(MyCommandParser::Argument *args, char *response) {
   Serial.print("string: "); Serial.println(args[0].asString);
   Serial.print("double: "); Serial.println(args[1].asDouble);
@@ -301,6 +282,7 @@ void cmd_test(MyCommandParser::Argument *args, char *response) {
   Serial.print("uint64: "); Serial.println((uint32_t)args[3].asUInt64); // NOTE: on older AVR-based boards, Serial doesn't support printing 64-bit values, so we'll cast it down to 32-bit
   strlcpy(response, "success", MyCommandParser::MAX_RESPONSE_SIZE);
 }
+*/
 
 void cmdHelp(MyCommandParser::Argument *args, char *response) {
   Serial.print("\
@@ -312,11 +294,12 @@ void cmdHelp(MyCommandParser::Argument *args, char *response) {
   FREQ A or B float(Hz)\n\r\
   PID A or B float float float\n\r\
   REPORT P or T or N, int    Plot, Terminal, None \n\r\
-  ZERO A or B or *\n\r"
+  ZERO A or B or *\n\r\
+  PHASE float degrees"
   );
-  Serial.println("test command: TEST <string> <double> <int64> <uint64>");
+  /*Serial.println("test command: TEST <string> <double> <int64> <uint64>");
   Serial.println("example: TEST \"\\x41bc\\ndef\" -1.234e5 -123 123");
-  Serial.println("example: MOVE A 21.5");
+  Serial.println("example: MOVE A 21.5");*/
 } 
 
 void cmdStop(MyCommandParser::Argument *args, char *response) // add motor commands
@@ -589,5 +572,12 @@ void cmdZero(MyCommandParser::Argument *args, char *response) // add motor comma
 {
   Serial.println("This does nothing. Sorry");
 }
+
+void cmdPhase(MyCommandParser::Argument *args, char *response)
+{
+  phaseAoffset = args[0].asDouble;
+  sprintf(buffer, "Phase offset %3.3f", phaseAoffset);
+  Serial.println(buffer);
+};
 
 // EOF
