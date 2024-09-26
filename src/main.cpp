@@ -123,8 +123,8 @@ void setup() {
 
     printStatus();
 
-    motorControlA.set_pid_sample_time(10) ;
-    motorControlB.set_pid_sample_time(10) ;
+    motorControlA.set_pid_sample_time(2) ;
+    motorControlB.set_pid_sample_time(2) ;
 }
 
 void loop() {

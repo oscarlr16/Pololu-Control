@@ -36,9 +36,9 @@
 
 
 // initial PID tunings for Motor A (adjuatable)
-#define MOTOR_A_P 0.28
-#define MOTOR_A_I 0.15
-#define MOTOR_A_D 0.01
+#define MOTOR_A_P 0.4
+#define MOTOR_A_I 0.2
+#define MOTOR_A_D 0.0
 
 // initial PID tunings for Motor B (adjuatable)
 // starting point 0.7,0.09,0.01
